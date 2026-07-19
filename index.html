@@ -76,7 +76,7 @@
             border: 3px solid #E5E7EB;
         }
 
-        #webcam-container canvas {
+        #webcam-container canvas, #webcam-container video {
             width: 100% !important;
             height: 100% !important;
             object-fit: cover;
@@ -116,6 +116,12 @@
             margin-top: -15px;
             margin-bottom: 15px;
             min-height: 20px;
+            word-break: break-all;
+        }
+        
+        .error-status {
+            color: #DC2626;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -130,86 +136,90 @@
     <div id="label-container"></div>
 </div>
 
+<!-- โหลดไลบรารีภายนอก -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
 <script type="text/javascript">
-    // ลิงก์โมเดลของคุณจาก Teachable Machine[cite: 1]
-    const URL = "https://teachablemachine.withgoogle.com/models/u6TWVRucE/";[cite: 1]
+    // ลิงก์โมเดลของคุณจาก Teachable Machine
+    const URL = "https://teachablemachine.withgoogle.com/models/u6TWVRucE/";
 
     let model, webcam, labelContainer, maxPredictions;
-    let lastPredictTime = 0; // ตัวแปรเก็บเวลาล่าสุดที่ทายผล
+    let isRunning = false;
 
     async function init() {
         const startBtn = document.getElementById("start-btn");
         const statusText = document.getElementById("status");
         
         startBtn.disabled = true;
-        statusText.innerText = "กำลังโหลดโมเดลและเปิดกล้อง...";
+        statusText.classList.remove("error-status");
+        statusText.innerText = "กำลังโหลดโมเดลจากระบบ...";
 
-        const modelURL = URL + "model.json";[cite: 1]
-        const metadataURL = URL + "metadata.json";[cite: 1]
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
 
         try {
-            // โหลดโมเดล[cite: 1]
-            model = await tmImage.load(modelURL, metadataURL);[cite: 1]
-            maxPredictions = model.getTotalClasses();[cite: 1]
+            // 1. โหลดโมเดล AI
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+            statusText.innerText = "โหลดโมเดลสำเร็จ กำลังเปิดกล้อง...";
 
-            // ตั้งค่ากล้อง[cite: 1]
-            const flip = true;[cite: 1]
-            webcam = new tmImage.Webcam(280, 280, flip);[cite: 1]
-            await webcam.setup();[cite: 1]
-            await webcam.play();[cite: 1]
+            // 2. ตั้งค่าและเปิดกล้อง
+            const flip = true;
+            webcam = new tmImage.Webcam(280, 280, flip);
             
-            // แสดงผลกล้องใน UI[cite: 1]
-            document.getElementById("webcam-container").innerHTML = "";
-            document.getElementById("webcam-container").appendChild(webcam.canvas);[cite: 1]
+            // รอเปิดสิทธิ์ใช้งานกล้อง
+            await webcam.setup(); 
+            await webcam.play();
             
-            // เตรียมหน้าตาสำหรับแสดงผลคำทำนาย[cite: 1]
+            // 3. แสดงผลกล้องใน UI
+            const webcamContainer = document.getElementById("webcam-container");
+            webcamContainer.innerHTML = "";
+            webcamContainer.appendChild(webcam.canvas);
+            
+            // 4. เตรียมหน้าตาสำหรับแสดงผลคำทำนาย
             labelContainer = document.getElementById("label-container");
             labelContainer.innerHTML = "";
-            for (let i = 0; i < maxPredictions; i++) {[cite: 1]
+            for (let i = 0; i < maxPredictions; i++) {
                 const row = document.createElement("div");
                 row.className = "prediction-row";
                 row.innerHTML = `<span class="class-name">-</span><span class="probability">0%</span>`;
                 labelContainer.appendChild(row);
             }
 
-            statusText.innerText = "ระบบเริ่มทำงานแล้ว (วิเคราะห์ผลทุกๆ 3 วินาที)";
+            statusText.innerText = "ระบบกำลังอัปเดตกล้องและวิเคราะห์ผลทุกๆ 3 วินาที";
             
-            // เริ่มต้นลูปการจับภาพและวิเคราะห์ผล
-            lastPredictTime = performance.now(); // ตั้งค่าเวลาเริ่มต้น
-            window.requestAnimationFrame(loop);[cite: 1]
+            // สั่งเริ่มทำงานลูปและการทายผล
+            isRunning = true;
+            window.requestAnimationFrame(loop);
+            
+            // ตั้งเวลาให้เรียกทายผล (Predict) ทุกๆ 3 วินาที (3000 มิลลิวินาที)
+            setInterval(predict, 3000);
 
         } catch (error) {
-            console.error(error);
-            statusText.innerText = "เกิดข้อผิดพลาดในการเข้าถึงกล้องหรือโหลดโมเดล";
+            console.error("Error details:", error);
+            statusText.classList.add("error-status");
+            statusText.innerText = "ข้อผิดพลาด: " + error.message + " (กรุณาเช็คว่ารันบน HTTPS หรือ Localhost หรือยัง)";
             startBtn.disabled = false;
         }
     }
 
+    // ฟังก์ชันอัปเดตเฟรมภาพหน้ากล้องตลอดเวลาเพื่อให้ภาพเคลื่อนไหวลื่นไหลไม่ค้าง
     async function loop() {
-        webcam.update(); // สั่งอัปเดตภาพหน้ากล้องตลอดเวลาเพื่อให้ภาพเคลื่อนไหวลื่นไหล[cite: 1]
-        
-        // เช็คว่าเวลาปัจจุบันผ่านไปจากครั้งล่าสุดที่ทายผลเกิน 3000 มิลลิวินาที (3 วินาที) หรือยัง
-        const currentTime = performance.now();
-        if (currentTime - lastPredictTime >= 3000) {
-            await predict(); // เรียกคำสั่งทายผล[cite: 1]
-            lastPredictTime = currentTime; // อัปเดตเวลาล่าสุดที่ทายผลสำเร็จ
-        }
-        
-        window.requestAnimationFrame(loop);[cite: 1]
+        if (!isRunning) return;
+        webcam.update(); 
+        window.requestAnimationFrame(loop);
     }
 
+    // ฟังก์ชันส่งภาพไปทายผล ทำงานเฉพาะเมื่อครบรอบทุกๆ 3 วินาที
     async function predict() {
-        if (!model || !webcam) return;
+        if (!model || !webcam || !isRunning) return;
         
-        // ส่งภาพในแคนวาสปัจจุบันไปทายผล[cite: 1]
-        const prediction = await model.predict(webcam.canvas);[cite: 1]
-        for (let i = 0; i < maxPredictions; i++) {[cite: 1]
-            const className = prediction[i].className;[cite: 1]
-            const probabilityPercent = (prediction[i].probability * 100).toFixed(1) + "%";[cite: 1]
+        const prediction = await model.predict(webcam.canvas);
+        for (let i = 0; i < maxPredictions; i++) {
+            const className = prediction[i].className;
+            const probabilityPercent = (prediction[i].probability * 100).toFixed(1) + "%";
             
-            // อัปเดตข้อความบนหน้าจอ
             const row = labelContainer.childNodes[i];
             row.querySelector(".class-name").innerText = className;
             row.querySelector(".probability").innerText = probabilityPercent;
